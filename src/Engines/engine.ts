@@ -876,6 +876,8 @@ export class Engine {
     /** @hidden */
     public _frameHandler: number;
 
+    private _renderedOnce = false;
+
     private _nextFreeTextureSlots = new Array<number>();
     private _maxSimultaneousTextures = 0;
 
@@ -1995,10 +1997,13 @@ export class Engine {
                 // Start new frame
                 this.beginFrame();
 
-                for (var index = 0; index < this._activeRenderLoops.length; index++) {
-                    var renderFunction = this._activeRenderLoops[index];
+                if (!this._renderedOnce) {
+                    for (var index = 0; index < this._activeRenderLoops.length; index++) {
+                        var renderFunction = this._activeRenderLoops[index];
 
-                    renderFunction();
+                        renderFunction();
+                    }
+                    this._renderedOnce = true;
                 }
 
                 // Present

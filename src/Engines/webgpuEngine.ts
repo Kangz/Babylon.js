@@ -81,6 +81,7 @@ export class WebGPUEngine extends Engine {
     private _device: GPUDevice;
     private _context: GPUCanvasContext;
     private _swapChain: GPUSwapChain;
+    private _fakeSwapChainTexture: GPUTexture;
 
     // Some of the internal state might change during the render pass.
     // This happens mainly during clear for the state
@@ -256,6 +257,21 @@ export class WebGPUEngine extends Engine {
         this._swapChain = this._context.configureSwapChain({
             device: this._device,
             format: this._options.swapChainFormat,
+            usage: WebGPUConstants.GPUTextureUsage_TRANSFER_DST,
+        });
+
+        this._fakeSwapChainTexture = this._device.createTexture({
+            size: {
+                width: this.getRenderWidth(),
+                height: this.getRenderHeight(),
+                depth: 1,
+            },
+            arrayLayerCount: 1,
+            mipLevelCount: 1,
+            sampleCount: 1,
+            dimension: WebGPUConstants.GPUTextureDimension_2d,
+            format: this._options.swapChainFormat,
+            usage: WebGPUConstants.GPUTextureUsage_OUTPUT_ATTACHMENT | WebGPUConstants.GPUTextureUsage_TRANSFER_SRC
         });
     }
 
@@ -1198,7 +1214,9 @@ export class WebGPUEngine extends Engine {
         super.beginFrame();
 
         this._uploadEncoder = this._device.createCommandEncoder(this._uploadEncoderDescriptor);
-        this._renderEncoder = this._device.createCommandEncoder(this._renderEncoderDescriptor);
+        if (!this._renderEncoder) {
+            this._renderEncoder = this._device.createCommandEncoder(this._renderEncoderDescriptor);
+        }
     }
 
     /**
@@ -1207,9 +1225,30 @@ export class WebGPUEngine extends Engine {
     public endFrame(): void {
         this._endRenderPass();
         this._commandBuffers[0] = this._uploadEncoder.finish();
-        this._commandBuffers[1] = this._renderEncoder.finish();
+        if (!this._commandBuffers[1]) {
+            this._commandBuffers[1] = this._renderEncoder.finish();
+        }
+
+        var swapChainCopyEncoder = this._device.createCommandEncoder({});
+        swapChainCopyEncoder.copyTextureToTexture({
+                texture: this._fakeSwapChainTexture,
+                mipLevel: 0,
+                arrayLayer: 0,
+                origin: {x: 0, y:0, z: 0},
+            }, {
+                texture: this._swapChain.getCurrentTexture(),
+                mipLevel: 0,
+                arrayLayer: 0,
+                origin: {x: 0, y:0, z: 0},
+            }, {
+                width: this.getRenderWidth(),
+                height: this.getRenderHeight(),
+                depth: 1,
+            }
+        );
 
         this._device.getQueue().submit(this._commandBuffers);
+        this._device.getQueue().submit([swapChainCopyEncoder.finish()]);
 
         super.endFrame();
     }
@@ -1223,7 +1262,7 @@ export class WebGPUEngine extends Engine {
             this._endRenderPass();
         }
 
-        this._mainColorAttachments[0].attachment = this._swapChain.getCurrentTexture().createDefaultView();
+        this._mainColorAttachments[0].attachment = this._fakeSwapChainTexture.createDefaultView();
 
         this._currentRenderPass = this._renderEncoder.beginRenderPass({
             colorAttachments: this._mainColorAttachments,
